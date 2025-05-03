@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Signal Time Editor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #f9f9f9;
+      color: #333;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: auto;
+      text-align: center;
+    }
+
+    .title {
+      font-size: 1.8rem;
+      text-transform: uppercase;
+      border: 2px solid #007bff;
+      background-color: white;
+      color: #007bff;
+      padding: 10px 40px;
+      border-radius: 10px;
+      display: inline-block;
+      margin-bottom: 0.5rem;
+      font-weight: bold;
+    }
+
+    .clock {
+      font-size: 1.1rem;
+      padding: 6px 12px;
+      margin-bottom: 1rem;
+      border: 2px solid #6c757d;
+      background-color: #ffffff;
+      color: #212529;
+      border-radius: 6px;
+      display: inline-block;
+      min-width: 320px; max-width: 360px;
+    }
+
+    input, button {
+      padding: 0.5rem;
+      margin: 0.25rem 0;
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    button {
+      background: #007bff;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+    }
+
+    .btn-danger {
+      background: #dc3545;
+    }
+
+    table {
+      width: 100%;
+      margin-top: 1rem;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      border: 1px solid #ddd;
+      padding: 0.5rem;
+      text-align: center;
+    }
+
+    .tabs {
+      display: flex;
+      margin-top: 1rem;
+    }
+
+    .tab {
+      flex: 1;
+      text-align: center;
+      padding: 0.5rem;
+      background: #eee;
+      cursor: pointer;
+    }
+
+    .tab.active {
+      background: #007bff;
+      color: white;
+    }
+
+    .tab-content {
+      display: none;
+      margin-top: 1rem;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    textarea {
+      width: 100%;
+      height: 200px;
+      font-family: monospace;
+    }
+
+    #customAlert, #customConfirm {
+      display: none;
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+      z-index: 1000;
+    }
+
+    #alertOverlay, #confirmOverlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.4);
+      z-index: 999;
+    }
+
+    #customAlert button, #customConfirm button {
+      margin-top: 10px;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">SIGNAL TIME EDITOR : XTREME PREDICTOR</h1>
+    <div class="clock" id="liveClock">Loading time...</div>
+
+    <input type="date" id="dateInput">
+    <input type="time" id="timeInput" step="1">
+    <input type="number" id="oddInput" placeholder="Odd (e.g. 5.5)">
+    <button onclick="addSignal()">Add Signal</button>
+    <button class="btn-danger" onclick="clearAll()">Clear All</button>
+    <button class="btn-secondary" onclick="downloadJSON()">Download JSON</button>
+    <input type="file" accept=".xlsx, .xls" onchange="handleExcelUpload(event)">
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab(0)">Signal Table</div>
+      <div class="tab" onclick="switchTab(1)">JSON Preview</div>
+    </div>
+
+    <div class="tab-content active" id="tableTab">
+      <table id="signalTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Time</th>
+            <th>Odd</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="tab-content" id="jsonTab">
+      <textarea id="jsonOutput" readonly></textarea>
+      <button onclick="copyJSON()">Copy JSON</button>
+    </div>
+  </div>
+
+  <!-- Custom Alert & Confirm -->
+  <div id="alertOverlay"></div>
+  <div id="customAlert">
+    <p id="customAlertMessage"></p>
+    <button onclick="closeAlert()">OK</button>
+  </div>
+
+  <div id="confirmOverlay"></div>
+  <div id="customConfirm">
+    <p id="customConfirmMessage"></p>
+    <div style="margin-top: 10px;">
+      <button onclick="confirmYes()">Yes</button>
+      <button class="btn-secondary" onclick="closeConfirm()">Cancel</button>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script>
+    let signals = [];
+    let confirmCallback = null;
+
+    function addSignal() {
+      const date = document.getElementById('dateInput').value;
+      let time = document.getElementById('timeInput').value;
+      const odd = parseFloat(document.getElementById('oddInput').value);
+
+      if (!date || !time || isNaN(odd)) {
+        showAlert("Fill all fields correctly!");
+        return;
+      }
+
+      if (time.length === 5) time += ":00";
+
+      signals.push({ date, time, odd });
+      updateTable();
+      updateJSON();
+
+      document.getElementById('timeInput').value = "";
+      document.getElementById('oddInput').value = "";
+    }
+
+    function updateTable() {
+      signals.sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
+      const tbody = document.querySelector('#signalTable tbody');
+      tbody.innerHTML = '';
+      signals.forEach((sig, index) => {
+        const row = `<tr>
+          <td>${sig.date}</td>
+          <td>${sig.time}</td>
+          <td>${sig.odd}</td>
+          <td>
+            <button onclick="editSignal(${index})">Edit</button>
+            <button class="btn-danger" onclick="deleteSignal(${index})">Delete</button>
+          </td>
+        </tr>`;
+        tbody.innerHTML += row;
+      });
+    }
+
+    function updateJSON() {
+      signals.sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
+      document.getElementById('jsonOutput').value = JSON.stringify(signals, null, 2);
+    }
+
+    function editSignal(index) {
+      const sig = signals[index];
+      document.getElementById('dateInput').value = sig.date;
+      document.getElementById('timeInput').value = sig.time;
+      document.getElementById('oddInput').value = sig.odd;
+      signals.splice(index, 1);
+      updateTable();
+      updateJSON();
+    }
+
+    function deleteSignal(index) {
+      showConfirm("Are you sure you want to delete this signal?", () => {
+        signals.splice(index, 1);
+        updateTable();
+        updateJSON();
+      });
+    }
+
+    function clearAll() {
+      showConfirm("Are you sure you want to clear all signals?", () => {
+        signals = [];
+        updateTable();
+        updateJSON();
+      });
+    }
+
+    function downloadJSON() {
+      const blob = new Blob([JSON.stringify(signals, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'signals.json';
+      a.click();
+    }
+
+    function copyJSON() {
+      navigator.clipboard.writeText(document.getElementById('jsonOutput').value)
+        .then(() => showAlert("JSON copied!"));
+    }
+
+    function switchTab(index) {
+      document.querySelectorAll('.tab').forEach((tab, i) => {
+        tab.classList.toggle('active', i === index);
+      });
+      document.querySelectorAll('.tab-content').forEach((tab, i) => {
+        tab.classList.toggle('active', i === index);
+      });
+    }
+
+    function handleExcelUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+
+        rows.forEach(row => {
+          if (row.Date && row.Time && row.Odd) {
+            signals.push({
+              date: row.Date.toString().split("T")[0],
+              time: typeof row.Time === "string"
+                ? row.Time
+                : new Date(row.Time).toTimeString().slice(0, 8),
+              odd: parseFloat(row.Odd)
+            });
+          }
+        });
+        updateTable();
+        updateJSON();
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function updateClock() {
+      const now = new Date();
+      const date = now.toLocaleDateString();
+      const time = now.toLocaleTimeString();
+      document.getElementById('liveClock').innerText = `${date} ${time}`;
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      updateClock();
+      setInterval(updateClock, 1000);
+    });
+
+    function showAlert(message) {
+      document.getElementById('customAlertMessage').innerText = message;
+      document.getElementById('alertOverlay').style.display = 'block';
+      document.getElementById('customAlert').style.display = 'block';
+    }
+
+    function closeAlert() {
+      document.getElementById('customAlert').style.display = 'none';
+      document.getElementById('alertOverlay').style.display = 'none';
+    }
+
+    function showConfirm(message, callback) {
+      document.getElementById('customConfirmMessage').innerText = message;
+      document.getElementById('confirmOverlay').style.display = 'block';
+      document.getElementById('customConfirm').style.display = 'block';
+      confirmCallback = callback;
+    }
+
+    function confirmYes() {
+      if (confirmCallback) confirmCallback();
+      closeConfirm();
+    }
+
+    function closeConfirm() {
+      document.getElementById('customConfirm').style.display = 'none';
+      document.getElementById('confirmOverlay').style.display = 'none';
+      confirmCallback = null;
+    }
+  </script>
+</body>
+</html>
